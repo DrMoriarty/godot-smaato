@@ -1,50 +1,52 @@
 package org.godotengine.godot;
 
+import android.app.Activity;
+import android.content.SharedPreferences;
+import android.content.res.Resources;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.preference.PreferenceManager;
+import android.provider.Settings;
+import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup.LayoutParams;
+import android.widget.FrameLayout;
+
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
-
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import android.app.Activity;
-import android.widget.FrameLayout;
-import android.view.ViewGroup.LayoutParams;
-import android.provider.Settings;
-import android.graphics.Color;
-import android.util.Log;
 import java.util.Locale;
-import android.view.Gravity;
-import android.view.View;
-import android.os.Bundle;
 
-import com.smaato.sdk.core.Config;
-import com.smaato.sdk.core.SmaatoSdk;
-import com.smaato.sdk.core.log.LogLevel;
-import com.smaato.sdk.banner.widget.BannerView;
-import com.smaato.sdk.banner.ad.BannerAdSize;
-import com.smaato.sdk.banner.widget.BannerError;
-import com.smaato.sdk.interstitial.Interstitial;
-import com.smaato.sdk.interstitial.InterstitialAd;
-import com.smaato.sdk.interstitial.InterstitialError;
-import com.smaato.sdk.interstitial.InterstitialRequestError;
-//import com.smaato.sdk.interstitial.EventListener;
-import com.smaato.sdk.rewarded.RewardedError;
-import com.smaato.sdk.rewarded.RewardedRequestError;
-import com.smaato.sdk.rewarded.RewardedInterstitial;
-import com.smaato.sdk.rewarded.RewardedInterstitialAd;
-//import com.smaato.sdk.rewarded.EventListener;
+import com.smaato.soma.AdDimension;
+import com.smaato.soma.AdDownloaderInterface;
+import com.smaato.soma.AdListenerInterface;
+import com.smaato.soma.AdSettings;
+import com.smaato.soma.BannerStateListener;
+import com.smaato.soma.BannerView;
+import com.smaato.soma.BaseView;
+import com.smaato.soma.ReceivedBannerInterface;
+import com.smaato.soma.SOMA;
+import com.smaato.soma.bannerutilities.constant.BannerStatus;
+import com.smaato.soma.internal.requests.settings.UserSettings;
+import com.smaato.soma.interstitial.Interstitial;
+import com.smaato.soma.interstitial.InterstitialAdListener;
+import com.smaato.soma.video.RewardedVideo;
+import com.smaato.soma.video.RewardedVideoListener;
 
 public class GodotSmaato extends Godot.SingletonBase
 {
 
     private final String TAG = GodotSmaato.class.getName();
     private Activity activity = null; // The main activity of the game
+    private long publisherId;
 
     private HashMap<String, View> zombieBanners = new HashMap<>();
     private HashMap<String, FrameLayout.LayoutParams> bannerParams = new HashMap<>();
-    private HashMap<String, InterstitialAd> interstitials = new HashMap<>();
+    private HashMap<String, Interstitial> interstitials = new HashMap<>();
     private HashMap<String, BannerView> banners = new HashMap<>();
-    private HashMap<String, RewardedInterstitialAd> rewardeds = new HashMap<>();
+    private HashMap<String, RewardedVideo> rewardeds = new HashMap<>();
 
     private boolean ProductionMode = true; // Store if is real or not
     private boolean isForChildDirectedTreatment = false; // Store if is children directed treatment desired
@@ -61,99 +63,74 @@ public class GodotSmaato extends Godot.SingletonBase
      * @param boolean ProductionMode Tell if the enviroment is for real or test
      * @param int gdscript instance id
      */
-    public void init(final String publisherId, boolean ProductionMode) {
+    public void init(final String _publisherId, boolean ProductionMode) {
 
         layout = (FrameLayout)activity.getWindow().getDecorView().getRootView();
         this.ProductionMode = ProductionMode;
-        activity.runOnUiThread(new Runnable()
-            {
-                @Override public void run()
-                {
-                    try {
-                        //SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(activity);
-                        //SharedPreferences.Editor editor = sharedPref.edit();
-                        //editor.putString("IABConsent_CMPPresent", "YES");
-                        //editor.putString("IABConsent_SubjectToGDPR", "0");
-                        //editor.commit();
-
-                        Config.ConfigBuilder builder = Config.builder();
-                        if(!ProductionMode)
-                            builder.setLogLevel(LogLevel.DEBUG);
-                        else
-                            builder.setLogLevel(LogLevel.WARNING);
-                        builder.setHttpsOnly(false);
-                        Config config = builder.build();
-                        SmaatoSdk.init(activity.getApplication(), config, publisherId);
-
-                        // additional information
-
-                        SmaatoSdk.setRegion(Locale.getDefault().getCountry());
-                        SmaatoSdk.setLanguage(Locale.getDefault().getLanguage());
-                        SmaatoSdk.setGPSEnabled(true);
-
-                        /*
-                          SmaatoSdk.setKeywords(...);
-                          SmaatoSdk.setSearchQuery(...);
-                          SmaatoSdk.setGender(...);
-                          SmaatoSdk.setAge(...);
-                          SmaatoSdk.setLatLng(...);
-                          SmaatoSdk.setZip(...);
-                          SmaatoSdk.setCoppa(...);
-                          SmaatoSdk.setWatermarkEnabled(...);
-                        */
-
-                        Log.d(TAG, "Smaato: inited with publisher id " + SmaatoSdk.getPublisherId() + " ver " + SmmatoSdk.getVersion());
-                        //initRewardedVideo("130908160", 0);
-                    } catch (Exception e) {
-                        Log.e(TAG, e.toString());
-                        e.printStackTrace();
-                    }
-                }
-            });
+        publisherId = Long.parseLong(_publisherId);
+        UserSettings userSettings = new UserSettings();
+        SOMA.init(activity.getApplication(), userSettings);
     }
 
     /* Rewarded Video
      * ********************************************************************** */
-    private void initRewardedVideo(final String id, final int callback_id)
+    private RewardedVideo initRewardedVideo(final String id, final int callback_id)
     {
         Log.w(TAG, "Smaato: Prepare rewarded video: "+id+" callback: "+Integer.toString(callback_id));
-        
-        RewardedInterstitial.loadAd(id, new com.smaato.sdk.rewarded.EventListener() {
-                public void onAdLoaded(RewardedInterstitialAd rewardedInterstitialAd) {
-                    rewardeds.put(id, rewardedInterstitialAd);
-                    Log.w(TAG, "Smaato: onAdLoaded");
+        RewardedVideo rewardedVideo = new RewardedVideo(activity);
+        rewardedVideo.getAdSettings().setPublisherId(publisherId);
+        rewardedVideo.getAdSettings().setAdspaceId(Long.parseLong(id));
+        rewardedVideo.setRewardedVideoListener(new RewardedVideoListener(){
+                // Called when the banner has been loaded.
+                @Override
+                public void onReadyToShow() {
+                    Log.w(TAG, "Smaato: onReadyToShow");
                     GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_loaded", new Object[] { id });
                 }
-                public void onAdFailedToLoad(RewardedRequestError rewardedRequestError) {
-                    Log.w(TAG, "Smaato: onAdFailedToLoad. error: " + rewardedRequestError.toString());
-                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_failed_to_load", new Object[] { id, rewardedRequestError.toString() });
+                // Called when the ad will be displayed.
+                @Override
+                public void onWillShow() {
                 }
-                public void onAdError(RewardedInterstitialAd rewardedInterstitialAd, RewardedError rewardedError) {
-                    Log.w(TAG, "Smaato: onAdError. error: " + rewardedError.toString());
-                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_failed_to_load", new Object[] { id, rewardedError.toString() });
-                }
-                public void onAdClosed(RewardedInterstitialAd rewardedInterstitialAd) {
-                    Log.w(TAG, "Smaato: onAdClosed");
-                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_closed", new Object[] { id });
-                }
-                public void onAdClicked(RewardedInterstitialAd rewardedInterstitialAd) {
-                    Log.w(TAG, "Smaato: onAdClicked");
+                // Called when the RewardedVideo or the EndCard is clicked after video completion
+                @Override
+                public void onWillOpenLandingPage () {
+                    Log.w(TAG, "Smaato: onWillOpenLandingPage");
                     GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_left_application", new Object[] { id });
                 }
-                public void onAdStarted(RewardedInterstitialAd rewardedInterstitialAd) {
-                    Log.w(TAG, "Smaato: onAdStarted");
-                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_started", new Object[] { id });
+                // Called when the ad is closed.
+                @Override
+                public void onWillClose () {
+                    Log.w(TAG, "Smaato: onWillClose");
+                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_closed", new Object[] { id });
                 }
-                public void onAdReward(RewardedInterstitialAd rewardedInterstitialAd) {
-                    Log.w(TAG, "Smaato: " + String.format(" onRewarded!"));
-                    GodotLib.calldeferred(callback_id, "_on_rewarded", new Object[] { id, "reward", 1 });
+                // Called when there is No ad or Ad failed to Load
+                @Override
+                public void onFailedToLoadAd () {
+                    Log.w(TAG, "Smaato: onFailedToLoadAd");
+                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_failed_to_load", new Object[] { id, "General failure" });
                 }
                 @Override
-                public void onAdTTLExpired(RewardedInterstitialAd rewardedInterstitialAd) {
-                    Log.w(TAG, "Smaato: onAdTTLExpired.");
-                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_ad_failed_to_load", new Object[] { id, "Ad TTL expired!" });
+                public void onRewardedVideoStarted () {
+                    Log.w(TAG, "Smaato: onRewardedVideoStarted");
+                    GodotLib.calldeferred(callback_id, "_on_rewarded_video_started", new Object[] { id });
+                }
+                @Override
+                public void onFirstQuartileCompleted () {
+                }
+                @Override
+                public void onSecondQuartileCompleted () {
+                }
+                @Override
+                public void onThirdQuartileCompleted () {
+                }
+                // Called when the Video ad display completed.
+                @Override
+                public void onRewardedVideoCompleted () {
+                    Log.w(TAG, "Smaato: onRewardedVideoCompleted");
+                    GodotLib.calldeferred(callback_id, "_on_rewarded", new Object[] { id, "reward", 1 });
                 }
             });
+        return rewardedVideo;
     }
 
     /**
@@ -161,16 +138,11 @@ public class GodotSmaato extends Godot.SingletonBase
      * @param String id AdMod Rewarded video ID
      */
     public void loadRewardedVideo(final String id, final int callback_id) {
-        activity.runOnUiThread(new Runnable()
-            {
-                @Override public void run()
-                {
-                    try {
-                        initRewardedVideo(id, callback_id);
-                    } catch (Exception e) {
-                        Log.e(TAG, e.toString());
-                        e.printStackTrace();
-                    }
+        activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    RewardedVideo r = initRewardedVideo(id, callback_id);
+                    rewardeds.put(id, r);
+                    r.asyncLoadNewBanner();
                 }
             });
     }
@@ -179,17 +151,13 @@ public class GodotSmaato extends Godot.SingletonBase
      * Show a Rewarded Video
      */
     public void showRewardedVideo(final String id) {
-        activity.runOnUiThread(new Runnable()
-            {
-                @Override public void run()
-                {
+        activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
                     if(rewardeds.containsKey(id)) {
-                        RewardedInterstitialAd r = rewardeds.get(id);
-                        if (r.isAvailableForPresentation()) {
-                            r.showAd();
-                        } else {
-                            Log.w(TAG, "Smaato: showRewardedVideo - rewarded not loaded");
-                        }
+                        RewardedVideo r = rewardeds.get(id);
+                        r.show();   // call this when to show the RewardedVideo ad.
+                    } else {
+                        Log.w(TAG, "Smaato: showRewardedVideo - rewarded not found: " + id);
                     }
                 }
             });
@@ -212,31 +180,36 @@ public class GodotSmaato extends Godot.SingletonBase
                 
         BannerView banner = new BannerView(activity);
         banner.setBackgroundColor(/* Color.WHITE */Color.TRANSPARENT);
+        banner.getAdSettings().setPublisherId(publisherId);
+        banner.getAdSettings().setAdspaceId(Long.parseLong(id));
+        banner.getAdSettings().setHttpsOnly(false);
+        banner.setLocationUpdateEnabled(true);
+        banner.setAutoReloadEnabled(false);
+        //banner.getAdSettings().setAdDimension(AdDimension.MEDIUMRECTANGLE);
+        banner.getAdSettings().setAdDimension(AdDimension.DEFAULT);
 
-        banner.setEventListener(new BannerView.EventListener() {
+        banner.setBannerStateListener(new BannerStateListener() {
                 @Override
-                public void onAdLoaded(BannerView bannerView) {
-                    Log.w(TAG, "Smaato: onAdLoaded");
-                    GodotLib.calldeferred(callback_id, "_on_banner_loaded", new Object[]{ id });
+                public void onWillOpenLandingPage(BaseView bannerView) {
+                    // TODO Auto-generated method stub
                 }
                 @Override
-                public void onAdFailedToLoad(BannerView bannerView, BannerError bannerError) {
-                    String  str;
-                    Log.w(TAG, "Smaato: onAdFailedToLoad -> " + bannerError.toString());
-                    GodotLib.calldeferred(callback_id, "_on_banner_failed_to_load", new Object[]{ id, bannerError.toString() });
+                public void onWillCloseLandingPage(BaseView bannerView) {
+                    // TODO Auto-generated method stub
                 }
+            });
+
+        banner.addAdListener(new AdListenerInterface() {
                 @Override
-                public void onAdImpression(BannerView bannerView) {
-                    Log.w(TAG, "Smaato: onAdImpression");
-                }
-                @Override
-                public void onAdClicked(BannerView bannerView) {
-                    Log.w(TAG, "Smaato: onAdClicked");
-                }
-                @Override
-                public void onAdTTLExpired(BannerView bannerView) {
-                    Log.w(TAG, "Smaato: onAdTTLExpired");
-                    GodotLib.calldeferred(callback_id, "_on_banner_failed_to_load", new Object[]{ id, "Ad TTL expired!" });
+                public void onReceiveAd(AdDownloaderInterface adDownloader, ReceivedBannerInterface banner) {
+                    if(banner.getStatus() == BannerStatus.ERROR){
+                        Log.w(TAG, "onReceiveAd error:"+banner.getErrorCode()+ " "+banner.getErrorMessage());
+                        GodotLib.calldeferred(callback_id, "_on_banner_failed_to_load", new Object[]{ id, "General failure" });
+                    } else {
+                        // Banner download succeeded
+                        Log.w(TAG, "onReceiveAd success");
+                        GodotLib.calldeferred(callback_id, "_on_banner_loaded", new Object[]{ id });
+                    }
                 }
             });
         return banner;
@@ -263,11 +236,10 @@ public class GodotSmaato extends Godot.SingletonBase
                         BannerView b = initBanner(id, isOnTop, callback_id);
                         banners.put(id, b);
                         // Request
-                        BannerAdSize adSize = BannerAdSize.XX_LARGE_320x50;
-                        b.loadAd(id, adSize);
+                        b.asyncLoadNewBanner();
                     } else {
                         BannerView b = banners.get(id);
-                        b.loadAd(id, BannerAdSize.XX_LARGE_320x50);
+                        b.asyncLoadNewBanner();
                         //Log.w(TAG, "Smaato: Banner already created: "+id);
                     }
                 }
@@ -311,6 +283,7 @@ public class GodotSmaato extends Godot.SingletonBase
                         BannerView b = banners.get(id);
                         banners.remove(id);
                         layout.removeView(b); // Remove the banner
+                        b.destroy();
                         Log.d(TAG, "Smaato: Remove Banner");
                     } else {
                         Log.w(TAG, "Smaato: Banner not found: "+id);
@@ -346,10 +319,18 @@ public class GodotSmaato extends Godot.SingletonBase
     {
         if(banners.containsKey(id)) {
             BannerView b = banners.get(id);
-            if(b != null)
-                return 320; // b.getAdSize().getWidthInPixels(activity);
-            else
+            if(b != null) {
+                int w = b.getWidth();
+                if(w == 0) w = b.getAdSettings().getBannerWidth();
+                if(w == 0) {
+                    Resources r = activity.getResources();
+                    w = (int)TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 320, r.getDisplayMetrics());
+                }
+                return w;
+            } else {
+                Log.w(TAG, "getBannerWidth: banner not found " + id);
                 return 0;
+            }
         } else {
             return 0;
         }
@@ -363,10 +344,18 @@ public class GodotSmaato extends Godot.SingletonBase
     {
         if(banners.containsKey(id)) {
             BannerView b = banners.get(id);
-            if(b != null)
-                return 50; // b.getAdSize().getHeightInPixels(activity);
-            else
+            if(b != null) {
+                int h = b.getHeight();
+                if(h == 0) h = b.getAdSettings().getBannerHeight();
+                if(h == 0) {
+                    Resources r = activity.getResources();
+                    h = (int)TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 50, r.getDisplayMetrics());
+                }
+                return h;
+            } else {
+                Log.w(TAG, "getBannerHeight: banner not found " + id);
                 return 0;
+            }
         } else {
             return 0;
         }
@@ -406,50 +395,43 @@ public class GodotSmaato extends Godot.SingletonBase
     /* Interstitial
      * ********************************************************************** */
 
-    private void initInterstitial(final String id, final int callback_id)
+    private Interstitial initInterstitial(final String id, final int callback_id)
     {
         Log.w(TAG, "Smaato: Prepare interstitial: "+id+" callback: "+Integer.toString(callback_id));
-
-        Interstitial.loadAd(id, new com.smaato.sdk.interstitial.EventListener() {
+        Interstitial interstitial = new Interstitial(activity);
+        interstitial.getAdSettings().setPublisherId(publisherId);
+        interstitial.getAdSettings().setAdspaceId(Long.parseLong(id));
+        interstitial.setInterstitialAdListener(new InterstitialAdListener() {
                 @Override
-                public void onAdLoaded(InterstitialAd interstitialAd) {
-                    Log.w(TAG, "Smaato: onAdLoaded");
-                    interstitials.put(id, interstitialAd);
+                public void onReadyToShow() {
+                    // interstitial is loaded an may be shown
+                    Log.w(TAG, "Interstitial: onReadyToShow");
                     GodotLib.calldeferred(callback_id, "_on_interstitial_loaded", new Object[] { id });
                 }
                 @Override
-                public void onAdFailedToLoad(InterstitialRequestError interstitialRequestError) {
-                    Log.w(TAG, "Smaato: onAdFailedToLoad - error: " + interstitialRequestError.toString());
-                    GodotLib.calldeferred(callback_id, "_on_interstitial_failed_to_load", new Object[] { id, interstitialRequestError.toString() });
+                public void onWillShow() {
+                    // called immediately before the interstitial is shown
+                    Log.w(TAG, "Interstitial: onWillShow");
                 }
                 @Override
-                public void onAdError(InterstitialAd interstitialAd, InterstitialError interstitialError) {
-                    Log.w(TAG, "Smaato: onAdError - error: " + interstitialError.toString());
-                    GodotLib.calldeferred(callback_id, "_on_interstitial_failed_to_load", new Object[] { id, interstitialError.toString() });
+                public void onWillOpenLandingPage() {
+                    // called immediately before the landing page is opened, after the user clicked
+                    Log.w(TAG, "Interstitial: onWillOpenLandingPage");
                 }
                 @Override
-                public void onAdOpened(InterstitialAd interstitialAd) {
-                    Log.w(TAG, "Smaato: onAdOpened()");
-                }
-                @Override
-                public void onAdClosed(InterstitialAd interstitialAd) {
-                    Log.w(TAG, "Smaato: onAdClosed");
+                public void onWillClose() {
+                    // called immediately before the interstitial is dismissed
+                    Log.w(TAG, "Interstitial: onWillClose");
                     GodotLib.calldeferred(callback_id, "_on_interstitial_close", new Object[] { id });
                 }
                 @Override
-                public void onAdClicked(InterstitialAd interstitialAd) {
-                    Log.w(TAG, "Smaato: onAdClicked");
-                }
-                @Override
-                public void onAdImpression(InterstitialAd interstitialAd) {
-                    Log.w(TAG, "Smaato: onAdImpression");
-                }
-                @Override
-                public void onAdTTLExpired(InterstitialAd interstitialAd) {
-                    Log.w(TAG, "Smaato: onAdTTLExpired");
-                    GodotLib.calldeferred(callback_id, "_on_interstitial_failed_to_load", new Object[] { id, "Ad TTL expired!" });
+                public void onFailedToLoadAd() {
+                    // loading the interstitial has failed
+                    Log.w(TAG, "Interstitial: onFailedToLoadAd");
+                    GodotLib.calldeferred(callback_id, "_on_interstitial_failed_to_load", new Object[] { id, "General failure" });
                 }
             });
+        return interstitial;
     }
 
     /**
@@ -458,11 +440,11 @@ public class GodotSmaato extends Godot.SingletonBase
      */
     public void loadInterstitial(final String id, final int callback_id)
     {
-        activity.runOnUiThread(new Runnable()
-            {
-                @Override public void run()
-                {
-                    initInterstitial(id, callback_id);
+        activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    Interstitial interstitialAd = initInterstitial(id, callback_id);
+                    interstitials.put(id, interstitialAd);
+                    interstitialAd.asyncLoadNewBanner();
                 }
             });
     }
@@ -472,17 +454,13 @@ public class GodotSmaato extends Godot.SingletonBase
      */
     public void showInterstitial(final String id)
     {
-        activity.runOnUiThread(new Runnable()
-            {
-                @Override public void run()
-                {
+        activity.runOnUiThread(new Runnable() {
+                @Override public void run() {
                     if(interstitials.containsKey(id)) {
-                        InterstitialAd interstitial = interstitials.get(id);
-                        if (interstitial.isAvailableForPresentation()) {
-                            interstitial.showAd(activity);
-                        } else {
-                            Log.w(TAG, "Smaato: showInterstitial - interstitial not loaded");
-                        }
+                        Interstitial interstitial = interstitials.get(id);
+                        interstitial.show();
+                    } else {
+                        Log.w(TAG, "showInterstitial: Interstitial not found " + id);
                     }
                 }
             });
